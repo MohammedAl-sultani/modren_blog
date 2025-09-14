@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: blog_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: blog_db
+      MYSQL_USER: blog_user
+      MYSQL_PASSWORD: blog_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database_setup.sql:/docker-entrypoint-initdb.d/database_setup.sql
+    networks:
+      - blog_network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: blog_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - blog_network
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: blog_backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=mysql+pymysql://blog_user:blog_password@mysql:3306/blog_db
+      - REDIS_URL=redis://redis:6379
+      - SECRET_KEY=your-super-secret-key-here
+    volumes:
+      - ./uploads:/app/uploads
+      - ./backend:/app
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - blog_network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: blog_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - blog_network
+    command: npm start
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  blog_network:
+    driver: bridge
